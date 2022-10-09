@@ -98,29 +98,11 @@ class UnixPlatformTest   {
 
     @Test
     @EnabledOnOs({OS.LINUX})
-    public void GIVEN_not_unix_platform_WHEN_add_user_to_group_THEN_user_added_to_group_successfully() throws IOException {
+    public void GIVEN_not_unix_platform_WHEN_add_user_to_group_THEN_user_added_to_group_successfully() {
         try {
-            lenient().doThrow(new IOException()).when(mockPlatform).createUser(anyString());
             spyPlatform.createUser(user);
-            Throwable throwable = assertThrows(IOException.class, () -> spyPlatform.createUser(user));
-            Throwable[] suppressed = throwable.getSuppressed();
-            assertThat(String.valueOf(Arrays.stream(suppressed).anyMatch(item -> item.toString().contains("adduser"))), true);
-        } catch (IOException e) {
-            LOGGER.info(e.getMessage());
-        }
-
-        try {
-            lenient().doThrow(new IOException()).when(mockPlatform).createGroup(anyString());
             spyPlatform.createGroup(group);
-            Throwable throwable = assertThrows(IOException.class, () -> spyPlatform.createGroup(group));
-            Throwable[] suppressed = throwable.getSuppressed();
-            assertThat(String.valueOf(Arrays.stream(suppressed).anyMatch(item -> item.toString().contains("addgroup"))), true);
-        } catch (IOException e) {
-            LOGGER.info(e.getMessage());
-        }
-
-        try {
-            lenient().doThrow(new IOException()).when(mockPlatform).addUserToGroup(user, group);
+            lenient().doThrow(new IOException()).when(mockPlatform).addUserToGroup(anyString(), anyString());
             spyPlatform.addUserToGroup(user, group);
             Throwable throwable = assertThrows(IOException.class, () -> spyPlatform.addUserToGroup(user, group));
             Throwable[] suppressed = throwable.getSuppressed();

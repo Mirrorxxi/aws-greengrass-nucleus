@@ -30,8 +30,8 @@ import com.aws.greengrass.logging.impl.GreengrassLogMessage;
 import com.aws.greengrass.mqttclient.MqttClient;
 import com.aws.greengrass.mqttclient.PublishRequest;
 import com.aws.greengrass.status.FleetStatusService;
-import com.aws.greengrass.status.model.ComponentStatusDetails;
 import com.aws.greengrass.status.model.ComponentDetails;
+import com.aws.greengrass.status.model.ComponentStatusDetails;
 import com.aws.greengrass.status.model.FleetStatusDetails;
 import com.aws.greengrass.status.model.MessageType;
 import com.aws.greengrass.status.model.OverallStatus;
@@ -305,7 +305,7 @@ class EventFleetStatusServiceTest extends BaseITCase {
                         ComponentDetails.builder().componentName("BrokenRun").version("1.0.0")
                                 .state(State.ERRORED).fleetConfigArns(Collections.EMPTY_LIST).componentStatusDetails(
                                         ComponentStatusDetails.builder()
-                                                .statusCode(Arrays.asList(ComponentStatusCode.RUN_ERROR.toString()))
+                                                .statusCodes(Arrays.asList(ComponentStatusCode.RUN_ERROR.toString()))
                                                 .statusReason(ComponentStatusCode.RUN_ERROR.getDescriptionWithExitCode(1))
                                                 .build()).build();
                 assertTrue(errorStatusDetails.getComponentDetails().contains(expectedErrorStatus));
@@ -317,7 +317,8 @@ class EventFleetStatusServiceTest extends BaseITCase {
             assertEquals("ThingName", brokenStatusDetails.getThing());
             assertEquals(MessageType.PARTIAL, brokenStatusDetails.getMessageType());
             assertNull(brokenStatusDetails.getChunkInfo());
-            assertNull(brokenStatusDetails.getDeploymentInformation().getUnchangedRootComponents());
+            assertListEquals(Collections.singletonList("CustomerApp"),
+                    brokenStatusDetails.getDeploymentInformation().getUnchangedRootComponents());
             assertEquals(OverallStatus.UNHEALTHY, brokenStatusDetails.getOverallStatus());
             assertListEquals(Arrays.asList(DeploymentErrorCode.DEPLOYMENT_FAILURE.name(),
                             DeploymentErrorCode.COMPONENT_UPDATE_ERROR.name(),
@@ -442,7 +443,7 @@ class EventFleetStatusServiceTest extends BaseITCase {
                         ComponentDetails.builder().componentName("BrokenRun").version("1.0.0")
                                 .state(State.ERRORED).fleetConfigArns(Collections.EMPTY_LIST).componentStatusDetails(
                                         ComponentStatusDetails.builder()
-                                                .statusCode(Arrays.asList(ComponentStatusCode.RUN_ERROR.toString()))
+                                                .statusCodes(Arrays.asList(ComponentStatusCode.RUN_ERROR.toString()))
                                                 .statusReason(ComponentStatusCode.RUN_ERROR.getDescriptionWithExitCode(1))
                                                 .build()).build();
                 assertTrue(errorStatusDetails.getComponentDetails().contains(expectedErrorStatus));
@@ -452,7 +453,8 @@ class EventFleetStatusServiceTest extends BaseITCase {
             // Last FSS publish request should have info for broken component BrokenRun v1
             FleetStatusDetails brokenStatusDetails = fleetStatusDetailsList.get().get(2);
             assertEquals("ThingName", brokenStatusDetails.getThing());
-            assertNull(brokenStatusDetails.getDeploymentInformation().getUnchangedRootComponents());
+            assertListEquals(Collections.emptyList(),
+                    brokenStatusDetails.getDeploymentInformation().getUnchangedRootComponents());
             assertEquals(OverallStatus.UNHEALTHY, brokenStatusDetails.getOverallStatus());
             assertEquals(MessageType.PARTIAL, brokenStatusDetails.getMessageType());
             assertNull(brokenStatusDetails.getChunkInfo());
@@ -502,7 +504,8 @@ class EventFleetStatusServiceTest extends BaseITCase {
             assertEquals(OverallStatus.HEALTHY, fleetStatusDetails.getOverallStatus());
             assertEquals(MessageType.PARTIAL, fleetStatusDetails.getMessageType());
             assertNull(fleetStatusDetails.getChunkInfo());
-            assertNull(fleetStatusDetails.getDeploymentInformation().getUnchangedRootComponents());
+            assertListEquals(Collections.singletonList("AppInvalidRecipe"),
+                    fleetStatusDetails.getDeploymentInformation().getUnchangedRootComponents());
             assertNotNull(fleetStatusDetails.getComponentDetails());
             // DEPLOYMENT_FAILURE, COMPONENT_PACKAGE_LOADING_ERROR, IO_ERROR, IO_MAPPING_ERROR, RECIPE_PARSE_ERROR
             assertListEquals(Arrays.asList(DeploymentErrorCode.DEPLOYMENT_FAILURE.name(),
@@ -735,7 +738,7 @@ class EventFleetStatusServiceTest extends BaseITCase {
 
             FleetStatusDetails shadowDeploymentStatus = fleetStatusDetailsList.get().get(1);
             assertEquals(Trigger.THING_DEPLOYMENT, shadowDeploymentStatus.getTrigger());
-            assertEquals("shadow_deployment", shadowDeploymentStatus.getDeploymentInformation().getDeploymentId());
+            assertEquals("TestShadowDeploymentUuid", shadowDeploymentStatus.getDeploymentInformation().getDeploymentId());
             assertEquals("arn:aws:greengrass:us-east-1:12345678910:configuration:thing/ThingName:1",
                     shadowDeploymentStatus.getDeploymentInformation().getFleetConfigurationArnForStatus());
             assertNotNull(shadowDeploymentStatus.getDeploymentInformation().getUnchangedRootComponents());
@@ -743,7 +746,7 @@ class EventFleetStatusServiceTest extends BaseITCase {
 
             FleetStatusDetails iotJobsDeploymentStatus = fleetStatusDetailsList.get().get(2);
             assertEquals(Trigger.THING_GROUP_DEPLOYMENT, iotJobsDeploymentStatus.getTrigger());
-            assertEquals("iot_jobs_deployment", iotJobsDeploymentStatus.getDeploymentInformation().getDeploymentId());
+            assertEquals("TestJobDeploymentUuid", iotJobsDeploymentStatus.getDeploymentInformation().getDeploymentId());
             assertEquals("arn:aws:greengrass:us-east-1:12345678910:configuration:thinggroup/group1:1",
                     iotJobsDeploymentStatus.getDeploymentInformation().getFleetConfigurationArnForStatus());
             assertNotNull(iotJobsDeploymentStatus.getDeploymentInformation().getUnchangedRootComponents());

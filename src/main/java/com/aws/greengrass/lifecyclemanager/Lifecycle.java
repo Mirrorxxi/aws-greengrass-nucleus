@@ -494,50 +494,56 @@ public class Lifecycle {
             return;
         }
 
-        long currentStateGeneration = stateGeneration.incrementAndGet();
-        replaceBackingTask(() -> {
-            if (!State.NEW.equals(getState()) || getStateGeneration().get() != currentStateGeneration) {
-                // Bail out if we're not in the expected state
-                return;
-            }
+        if (desiredState.get().equals(State.RUNNING)) {
+
+            // if there is already a install() task running, do nothing.
+
+            long currentStateGeneration = stateGeneration.incrementAndGet();
+            replaceBackingTask(() -> {
+                if (!State.NEW.equals(getState()) || getStateGeneration().get() != currentStateGeneration) {
+                    // Bail out if we're not in the expected state
+                    return;
+                }
+                try {
+                    greengrassService.install();
+                } catch (InterruptedException t) {
+                    logger.atWarn("service-install-interrupted").log("Service interrupted while running install");
+                } catch (Throwable t) {
+                    greengrassService.serviceErrored(t);
+                }
+            }, LIFECYCLE_INSTALL_NAMESPACE_TOPIC);
+
+//            Integer installTimeOut = getTimeoutConfigValue(
+//                    LIFECYCLE_INSTALL_NAMESPACE_TOPIC, DEFAULT_INSTALL_STAGE_TIMEOUT_IN_SEC);
+
             try {
-                greengrassService.install();
-            } catch (InterruptedException t) {
-                logger.atWarn("service-install-interrupted").log("Service interrupted while running install");
-            } catch (Throwable t) {
-                greengrassService.serviceErrored(t);
+
+                logger.atInfo("11111:").log("jjjj:"+backingTask.get());
+                Future<?> currentTask1 = backingTask.get();
+
+                while(currentTask1 != null && !currentTask1.isDone()){
+                    if(currentTask1.isDone()){
+                        break;
+                    }
+                    continue;
+                }
+
+                logger.atInfo("33333:" + lastReportedState).log("jjjj:");
+                if (!State.ERRORED.equals(lastReportedState.get())) {
+                    internalReportState(State.INSTALLED);
+                }
+            } finally {
+
             }
-        }, LIFECYCLE_INSTALL_NAMESPACE_TOPIC);
 
-        Integer installTimeOut = getTimeoutConfigValue(
-                LIFECYCLE_INSTALL_NAMESPACE_TOPIC, DEFAULT_INSTALL_STAGE_TIMEOUT_IN_SEC);
-
-        try {
-            backingTask.get().get(installTimeOut, TimeUnit.SECONDS);
-            if (!State.ERRORED.equals(lastReportedState.get())) {
-                internalReportState(State.INSTALLED);
-            }
-        } catch (ExecutionException ee) {
-            greengrassService.serviceErrored(ee);
-        } catch (TimeoutException te) {
-            greengrassService.serviceErrored(ComponentStatusCode.INSTALL_TIMEOUT, "Timeout in install");
-        }
-
-        asyncFinishAction.set((Object stateEvent) -> {
-            // if a state is reported
-            if (stateEvent instanceof State) {
+            asyncFinishAction.set((stateEvent) -> {
+                logger.atInfo("55555:"+stateEvent).log("jjjj:");
+                stopBackingTask();
                 return true;
-            }
-
-            // else if desiredState is updated
-            Optional<State> nextDesiredState = peekOrRemoveFirstDesiredState(State.NEW);
-            // Don't finish the state handling if the new desiredState is still Installing
-            if (nextDesiredState.isPresent() && nextDesiredState.get().equals(State.NEW)) {
-                return false;
-            }
-
-            return true;
-        });
+            });
+        } else {
+            internalReportState(State.STOPPING);
+        }
     }
 
 
@@ -749,9 +755,12 @@ public class Lifecycle {
 
     @SuppressWarnings("PMD.AvoidGettingFutureWithoutTimeout")
     private synchronized Future<?> replaceBackingTask(Runnable r, String action) {
+        logger.atInfo("Runnable").log("jjjj-:"+r);
+        logger.atInfo("replaceBackingTask").log("jjjj-:"+backingTask);
         Future<?> bt = backingTask.get();
         String btName = backingTaskName;
 
+        logger.atInfo("bt.isDone:").log("jjjj-:"+bt.isDone());
         if (bt != null && !bt.isDone()) {
             backingTask.set(CompletableFuture.completedFuture(null));
             logger.info("Stopping backingTask {}", btName);
@@ -760,7 +769,7 @@ public class Lifecycle {
 
         if (r != null) {
             backingTaskName = action;
-            logger.debug("Scheduling backingTask {}", backingTaskName);
+            logger.info("Scheduling backingTask {}", backingTaskName);
             backingTask.set(greengrassService.getContext().get(ExecutorService.class).submit(r));
         }
         return bt;

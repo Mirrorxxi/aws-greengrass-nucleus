@@ -509,8 +509,13 @@ public class Lifecycle {
         }, LIFECYCLE_INSTALL_NAMESPACE_TOPIC);
 
         Future<?> currentTask = backingTask.get();
-        while(!currentTask.isDone()){
-            continue;
+        while (!currentTask.isDone()) {
+            // Wait a little bit before checking again
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException interruptedException) {
+                logger.atError("service-install-interrupted").log("Service interrupted while running install");
+            }
         }
 
         if (!State.ERRORED.equals(lastReportedState.get())) {

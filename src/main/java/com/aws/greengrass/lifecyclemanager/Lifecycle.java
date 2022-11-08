@@ -497,12 +497,10 @@ public class Lifecycle {
 
         Integer timeout = getTimeoutConfigValue(
                 LIFECYCLE_INSTALL_NAMESPACE_TOPIC, DEFAULT_INSTALL_STAGE_TIMEOUT_IN_SEC);
-        AtomicReference<Boolean> stopFlag = new AtomicReference<>(false);
         Future<?> schedule =
                 greengrassService.getContext().get(ScheduledExecutorService.class).schedule(() -> {
                     if (getState().equals(State.NEW) && currentStateGeneration == getStateGeneration().get()) {
                         greengrassService.serviceErrored(ComponentStatusCode.INSTALL_TIMEOUT, "Timeout in install");
-                        stopFlag.set(true);
                     }
                 }, timeout, TimeUnit.SECONDS);
 
@@ -513,7 +511,7 @@ public class Lifecycle {
             }
             try {
                 greengrassService.install();
-                if (!State.ERRORED.equals(lastReportedState.get()) && !stopFlag.get()) {
+                if (!State.ERRORED.equals(lastReportedState.get())) {
                     schedule.cancel(true);
                     internalReportState(State.INSTALLED);
                 }

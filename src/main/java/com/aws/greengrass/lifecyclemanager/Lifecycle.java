@@ -493,7 +493,6 @@ public class Lifecycle {
             return;
         }
 
-        // if there is already a startup() task running, do nothing.
         long currentStateGeneration = stateGeneration.incrementAndGet();
 
         Integer timeout = getTimeoutConfigValue(
@@ -501,10 +500,8 @@ public class Lifecycle {
         AtomicReference<Boolean> stopFlag = new AtomicReference<>(false);
         Future<?> schedule =
                 greengrassService.getContext().get(ScheduledExecutorService.class).schedule(() -> {
-                    System.out.println("我超时了1");
                     if (getState().equals(State.NEW) && currentStateGeneration == getStateGeneration().get()) {
                         greengrassService.serviceErrored(ComponentStatusCode.INSTALL_TIMEOUT, "Timeout in install");
-                        System.out.println("我超时了2");
                         stopFlag.set(true);
                     }
                 }, timeout, TimeUnit.SECONDS);

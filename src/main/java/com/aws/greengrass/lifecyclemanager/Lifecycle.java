@@ -493,7 +493,22 @@ public class Lifecycle {
             return;
         }
 
+        // if there is already a startup() task running, do nothing.
         long currentStateGeneration = stateGeneration.incrementAndGet();
+
+        Integer timeout = getTimeoutConfigValue(
+                LIFECYCLE_INSTALL_NAMESPACE_TOPIC, DEFAULT_INSTALL_STAGE_TIMEOUT_IN_SEC);
+        AtomicReference<Boolean> stopFlag = new AtomicReference<>(false);
+        Future<?> schedule =
+                greengrassService.getContext().get(ScheduledExecutorService.class).schedule(() -> {
+                    System.out.println("我超时了1");
+                    if (getState().equals(State.NEW) && currentStateGeneration == getStateGeneration().get()) {
+                        greengrassService.serviceErrored(ComponentStatusCode.INSTALL_TIMEOUT, "Timeout in install");
+                        System.out.println("我超时了2");
+                        stopFlag.set(true);
+                    }
+                }, timeout, TimeUnit.SECONDS);
+
         replaceBackingTask(() -> {
             if (!State.NEW.equals(getState()) || getStateGeneration().get() != currentStateGeneration) {
                 // Bail out if we're not in the expected state
@@ -501,6 +516,10 @@ public class Lifecycle {
             }
             try {
                 greengrassService.install();
+                if (!State.ERRORED.equals(lastReportedState.get()) && !stopFlag.get()) {
+                    schedule.cancel(true);
+                    internalReportState(State.INSTALLED);
+                }
             } catch (InterruptedException t) {
                 logger.atWarn("service-install-interrupted").log("Service interrupted while running install");
             } catch (Throwable t) {
@@ -508,21 +527,8 @@ public class Lifecycle {
             }
         }, LIFECYCLE_INSTALL_NAMESPACE_TOPIC);
 
-        Future<?> currentTask = backingTask.get();
-        while (!currentTask.isDone()) {
-            // Wait a little bit before checking again
-            try {
-                Thread.sleep(1000);
-            } catch (InterruptedException interruptedException) {
-                logger.atError("service-install-interrupted").log("Service interrupted while running install");
-            }
-        }
-
-        if (!State.ERRORED.equals(lastReportedState.get())) {
-            internalReportState(State.INSTALLED);
-        }
-
         asyncFinishAction.set((stateEvent) -> {
+            schedule.cancel(true);
             stopBackingTask();
             return true;
         });

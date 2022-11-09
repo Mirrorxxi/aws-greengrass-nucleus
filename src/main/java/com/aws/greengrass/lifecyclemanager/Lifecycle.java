@@ -493,40 +493,57 @@ public class Lifecycle {
             return;
         }
 
-        long currentStateGeneration = stateGeneration.incrementAndGet();
-
-        Integer timeout = getTimeoutConfigValue(
-                LIFECYCLE_INSTALL_NAMESPACE_TOPIC, DEFAULT_INSTALL_STAGE_TIMEOUT_IN_SEC);
-        Future<?> schedule =
-                greengrassService.getContext().get(ScheduledExecutorService.class).schedule(() -> {
-                    if (getState().equals(State.NEW) && currentStateGeneration == getStateGeneration().get()) {
-                        greengrassService.serviceErrored(ComponentStatusCode.INSTALL_TIMEOUT, "Timeout in install");
-                    }
-                }, timeout, TimeUnit.SECONDS);
-
-        replaceBackingTask(() -> {
-            if (!State.NEW.equals(getState()) || getStateGeneration().get() != currentStateGeneration) {
-                // Bail out if we're not in the expected state
+        if (desiredState.get().equals(State.RUNNING)) {
+            // if there is already a install() task running, do nothing.
+            Future<?> currentTask = backingTask.get();
+            if (currentTask != null && !currentTask.isDone()) {
                 return;
             }
-            try {
-                greengrassService.install();
-                if (!State.ERRORED.equals(lastReportedState.get())) {
-                    schedule.cancel(true);
-                    internalReportState(State.INSTALLED);
-                }
-            } catch (InterruptedException t) {
-                logger.atWarn("service-install-interrupted").log("Service interrupted while running install");
-            } catch (Throwable t) {
-                greengrassService.serviceErrored(t);
-            }
-        }, LIFECYCLE_INSTALL_NAMESPACE_TOPIC);
 
-        asyncFinishAction.set((stateEvent) -> {
-            schedule.cancel(true);
-            stopBackingTask();
-            return true;
-        });
+            long currentStateGeneration = stateGeneration.incrementAndGet();
+
+            Integer timeout = getTimeoutConfigValue(
+                    LIFECYCLE_INSTALL_NAMESPACE_TOPIC, DEFAULT_INSTALL_STAGE_TIMEOUT_IN_SEC);
+            Future<?> schedule =
+                    greengrassService.getContext().get(ScheduledExecutorService.class).schedule(() -> {
+                        if (getState().equals(State.NEW) && currentStateGeneration == getStateGeneration().get()) {
+                            greengrassService.serviceErrored(ComponentStatusCode.INSTALL_TIMEOUT, "Timeout in install");
+                        }
+                    }, timeout, TimeUnit.SECONDS);
+
+            replaceBackingTask(() -> {
+                if (!State.NEW.equals(getState()) || getStateGeneration().get() != currentStateGeneration) {
+                    // Bail out if we're not in the expected state
+                    return;
+                }
+                try {
+                    greengrassService.install();
+                    if (!State.ERRORED.equals(lastReportedState.get()) && !schedule.isDone()) {
+                        internalReportState(State.INSTALLED);
+                        schedule.cancel(true);
+                    }
+                } catch (InterruptedException t) {
+                    logger.atWarn("service-install-interrupted").log("Service interrupted while running install");
+                } catch (Throwable t) {
+                    greengrassService.serviceErrored(t);
+                }
+            }, LIFECYCLE_INSTALL_NAMESPACE_TOPIC);
+
+            asyncFinishAction.set((stateEvent) -> {
+                // else if desiredState is updated
+                Optional<State> nextDesiredState = peekOrRemoveFirstDesiredState(State.NEW);
+                // Don't finish the state handling if the new desiredState is still INSTALLED
+                if (nextDesiredState.isPresent() && nextDesiredState.get().equals(State.INSTALLED)) {
+                    schedule.cancel(false);
+                } else {
+                    schedule.cancel(true);
+                }
+                stopBackingTask();
+                return true;
+            });
+        } else {
+            internalReportState(State.STOPPING);
+        }
     }
 
 

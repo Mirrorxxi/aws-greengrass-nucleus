@@ -63,6 +63,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
@@ -180,10 +181,36 @@ class LifecycleTest {
         lifecycle.initLifecycleThread();
         lifecycle.requestStart();
 
-        verify(greengrassService, timeout(1000)).install();
+        verify(greengrassService, timeout(1000).atLeastOnce()).install();
         verify(greengrassService, timeout(1000)).startup();
         assertEquals(State.STARTING, lifecycle.getState());
         assertThat(lifecycle.getStatusDetails(), is(STATUS_DETAIL_HEALTHY));
+    }
+
+    @Test
+    void GIVEN_state_new_WHEN_requestStop_called_THEN_shutdown_normally() throws InterruptedException {
+        lifecycle = new Lifecycle(greengrassService, logger, greengrassService.getPrivateConfig());
+        initLifecycleState(lifecycle, State.NEW);
+
+        CountDownLatch installInterrupted = new CountDownLatch(1);
+        Mockito.doAnswer((mock) -> {
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                installInterrupted.countDown();
+            }
+            return null;
+        }).when(greengrassService).install();
+
+        lifecycle.initLifecycleThread();
+        lifecycle.requestStart();
+
+        verify(greengrassService,timeout(1000).atLeastOnce()).install();
+
+        lifecycle.requestStop();
+
+        assertThat(installInterrupted.await(1000, TimeUnit.MILLISECONDS), is(true));
+        verify(greengrassService,never()).shutdown();
     }
 
     @Test

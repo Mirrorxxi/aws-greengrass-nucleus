@@ -358,7 +358,7 @@ public class Lifecycle {
                     handleCurrentStateBroken(desiredState, prevState);
                     break;
                 case NEW:
-                    handleCurrentStateNew(desiredState, asyncFinishAction);
+                    handleCurrentStateNewAsync(desiredState, asyncFinishAction);
                     break;
                 case INSTALLED:
                     handleCurrentStateInstalledAsync(desiredState, asyncFinishAction);
@@ -486,15 +486,30 @@ public class Lifecycle {
     }
 
     @SuppressWarnings("PMD.AvoidCatchingThrowable")
-    private void handleCurrentStateNew(Optional<State> desiredState,
-                                       AtomicReference<Predicate<Object>> asyncFinishAction)
-            throws InterruptedException {
+    private void handleCurrentStateNewAsync(Optional<State> desiredState,
+                                       AtomicReference<Predicate<Object>> asyncFinishAction) {
         // if no desired state is set, don't do anything.
         if (!desiredState.isPresent()) {
             return;
         }
 
+        // if there is already a install() task running, do nothing.
+        Future<?> currentTask = backingTask.get();
+        if (currentTask != null && !currentTask.isDone()) {
+            return;
+        }
+
         long currentStateGeneration = stateGeneration.incrementAndGet();
+
+        Integer timeout = getTimeoutConfigValue(
+                LIFECYCLE_INSTALL_NAMESPACE_TOPIC, DEFAULT_INSTALL_STAGE_TIMEOUT_IN_SEC);
+        Future<?> schedule =
+                greengrassService.getContext().get(ScheduledExecutorService.class).schedule(() -> {
+                    if (getState().equals(State.NEW) && currentStateGeneration == getStateGeneration().get()) {
+                        greengrassService.serviceErrored(ComponentStatusCode.INSTALL_TIMEOUT, "Timeout in install");
+                    }
+                }, timeout, TimeUnit.SECONDS);
+
         replaceBackingTask(() -> {
             if (!State.NEW.equals(getState()) || getStateGeneration().get() != currentStateGeneration) {
                 // Bail out if we're not in the expected state
@@ -502,40 +517,23 @@ public class Lifecycle {
             }
             try {
                 greengrassService.install();
+                if (!State.ERRORED.equals(lastReportedState.get()) && !schedule.isDone()) {
+                    internalReportState(State.INSTALLED);
+                    schedule.cancel(true);
+                }
             } catch (InterruptedException t) {
+                schedule.cancel(true);
                 logger.atWarn("service-install-interrupted").log("Service interrupted while running install");
+                Thread.currentThread().interrupt();
             } catch (Throwable t) {
+                schedule.cancel(true);
                 greengrassService.serviceErrored(t);
             }
         }, LIFECYCLE_INSTALL_NAMESPACE_TOPIC);
 
-        Integer installTimeOut = getTimeoutConfigValue(
-                LIFECYCLE_INSTALL_NAMESPACE_TOPIC, DEFAULT_INSTALL_STAGE_TIMEOUT_IN_SEC);
-
-        try {
-            backingTask.get().get(installTimeOut, TimeUnit.SECONDS);
-            if (!State.ERRORED.equals(lastReportedState.get())) {
-                internalReportState(State.INSTALLED);
-            }
-        } catch (ExecutionException ee) {
-            greengrassService.serviceErrored(ee);
-        } catch (TimeoutException te) {
-            greengrassService.serviceErrored(ComponentStatusCode.INSTALL_TIMEOUT, "Timeout in install");
-        }
-
-        asyncFinishAction.set((Object stateEvent) -> {
-            // if a state is reported
-            if (stateEvent instanceof State) {
-                return true;
-            }
-
-            // else if desiredState is updated
-            Optional<State> nextDesiredState = peekOrRemoveFirstDesiredState(State.NEW);
-            // Don't finish the state handling if the new desiredState is still Installing
-            if (nextDesiredState.isPresent() && nextDesiredState.get().equals(State.NEW)) {
-                return false;
-            }
-
+        asyncFinishAction.set((stateEvent) -> {
+            schedule.cancel(true);
+            stopBackingTask();
             return true;
         });
     }
